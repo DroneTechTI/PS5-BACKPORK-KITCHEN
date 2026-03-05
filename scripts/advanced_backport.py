@@ -193,7 +193,7 @@ class BackportPipeline:
             "files_found":   [],
             "step_analysis": {},
             "step_bps":      {"applied": [], "skipped": [], "errors": []},
-            "step_stub":     {"stubbed": [], "not_found": [], "errors": []},
+            "step_stub":     {"stubbed": [], "skipped_critical": [], "not_found": [], "errors": []},
             "step_sdk_patch": {"patched": [], "skipped": []},
             "step_resign":   {"resigned": [], "errors": []},
             "errors":        [],
@@ -307,14 +307,19 @@ class BackportPipeline:
                 continue
             try:
                 stubber = AutoStubber(fpath)
-                res = stubber.stub_missing(missing, mode="ret_zero")
+                res = stubber.stub_missing_smart(missing)
                 if res["stubbed"]:
                     stubber.save(fpath)
                     self.results["step_stub"]["stubbed"].extend(res["stubbed"])
+                self.results["step_stub"]["skipped_critical"].extend(res.get("skipped_critical", []))
                 self.results["step_stub"]["not_found"].extend(res["not_found"])
-                _log("  {} -- stubbed: {} / not_found: {}".format(
-                    fname, len(res["stubbed"]), len(res["not_found"])),
+                skipped_crit = res.get("skipped_critical", [])
+                _log("  {} -- stubbed: {} / skipped_critical: {} / not_found: {}".format(
+                    fname, len(res["stubbed"]), len(skipped_crit), len(res["not_found"])),
                     GREEN if res["stubbed"] else YELLOW)
+                if skipped_crit:
+                    _log("    [WARN] Critical symbols NOT stubbed (would break game): {}".format(
+                        ", ".join(skipped_crit)), YELLOW)
             except Exception as ex:
                 _log("  [ERR] {} -- {}".format(fname, ex), RED)
                 self.results["step_stub"]["errors"].append(
@@ -439,6 +444,9 @@ class BackportPipeline:
         _log("  BPS skipped:      {}".format(len(r["step_bps"]["skipped"])))
         _log("  BPS errors:       {}".format(len(r["step_bps"]["errors"])))
         _log("  Symbols stubbed:  {}".format(len(r["step_stub"]["stubbed"])))
+        if r["step_stub"]["skipped_critical"]:
+            _log("  Symbols skipped (critical, unsafe to stub): {}".format(
+                ", ".join(r["step_stub"]["skipped_critical"])), YELLOW)
         _log("  SDK patched:      {}".format(len(r["step_sdk_patch"]["patched"])))
         _log("  Re-signed:        {}".format(len(r["step_resign"]["resigned"])))
         _log("  Total time:       {}s".format(r["total_time_s"]))
